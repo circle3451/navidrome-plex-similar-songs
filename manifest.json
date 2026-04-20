@@ -1,0 +1,64 @@
+{
+  "name": "Plex Sonic Similar Songs",
+  "author": "lassegh",
+  "version": "0.1.0",
+  "description": "Fetches sonically similar songs from Plex's Sonic Analysis and maps them back to Navidrome tracks",
+  "permissions": {
+    "http": {
+      "reason": "Communicate with Plex Media Server API to search tracks and retrieve sonic similarity data",
+      "requiredHosts": [
+        "*"
+      ]
+    },
+    "kvstore": {
+      "reason": "Cache Plex-to-Navidrome track mappings to avoid redundant API calls",
+      "maxSize": "5MB"
+    }
+  },
+  "config": {
+    "schema": {
+      "type": "object",
+      "required": ["plex_url", "plex_token"],
+      "properties": {
+        "plex_url": {
+          "type": "string",
+          "title": "Plex Server URL",
+          "description": "Base URL of your Plex server (e.g. http://192.168.1.100:32400)"
+        },
+        "plex_token": {
+          "type": "string",
+          "title": "Plex Token",
+          "description": "Your Plex authentication token (X-Plex-Token)"
+        },
+        "match_threshold": {
+          "type": "integer",
+          "title": "Match Threshold",
+          "description": "Minimum confidence percentage for fuzzy string matching (0-100)",
+          "default": 85,
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "uiSchema": {
+      "type": "VerticalLayout",
+      "elements": [
+        {
+          "type": "Control",
+          "scope": "#/properties/plex_url"
+        },
+        {
+          "type": "Control",
+          "scope": "#/properties/plex_token",
+          "options": {
+            "format": "password"
+          }
+        },
+        {
+          "type": "Control",
+          "scope": "#/properties/match_threshold"
+        }
+      ]
+    }
+  }
+}
