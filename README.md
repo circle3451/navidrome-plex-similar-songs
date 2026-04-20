@@ -1,18 +1,18 @@
 # Plex Sonic Similar Songs — Navidrome Plugin
 
-A [Navidrome](https://navidrome.org) plugin that uses Plex's Sonic Analysis to power **Instant Mix** and similar-songs features. When you hit "Instant Mix" on a track, this plugin searches your Plex server for the same song, retrieves its sonically similar tracks, and maps them back to your Navidrome library.
+A [Navidrome](https://navidrome.org) plugin that uses Plex's Sonic Analysis to power **Instant Mix**, **Radio**, and **Similar Artists** features. When you hit "Instant Mix" on a track, this plugin searches your Plex server for the same song, retrieves its sonically similar tracks, and maps them back to your Navidrome library.
 
 ## How It Works
 
 1. **Cache check** — Looks up the track in the local KVStore (persists across restarts, 7-day TTL).
 2. **Forward search** — Searches Plex's `/hubs/search` endpoint to find the matching track by artist + title.
 3. **Sonic analysis** — Calls Plex's `/library/metadata/{id}/nearest` to get sonically similar tracks.
-4. **Reverse matching** — Converts the Plex results into `SongRef` objects (name, artist, album, duration) so Navidrome can reconcile them against its own library using fuzzy string matching.
+4. **Reverse matching** — Converts the Plex results into `SongRef` objects (name, artist, album, duration) so Navidrome can reconcile them against its own library. Duplicate results are automatically filtered out.
 5. **Cache & return** — Stores the result in KVStore and returns the similar songs.
 
 ## Requirements
 
-- [Navidrome](https://navidrome.org) with plugin support enabled
+- [Navidrome](https://navidrome.org) v0.60.0+ with plugin support enabled
 - A [Plex Media Server](https://plex.tv) with a music library (Sonic Analysis enabled)
 - A Plex authentication token ([how to find your token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/))
 
@@ -37,18 +37,21 @@ zip -j plex-similar-songs.ndp manifest.json plugin.wasm
 
 ## Installation
 
-1. Copy `plex-similar-songs.ndp` to your Navidrome plugins folder.
-2. Enable plugins in `navidrome.toml`:
+1. Copy `plex-similar-songs.ndp` to your Navidrome plugins folder (default: `/data/plugins`).
+2. Enable plugins in your environment or `navidrome.toml`:
    ```toml
-   [Plugins]
-   Enabled = true
-   Folder = "/path/to/plugins"
+   PluginsEnabled = true
+   PluginsAutoReload = true
+   Agents = "plexsonic,lastfm,spotify"
    ```
-3. Add the plugin to your agents list:
-   ```toml
-   Agents = "lastfm,plex-similar-songs"
+   Or with environment variables (e.g. Docker Compose):
+   ```yaml
+   environment:
+     - ND_PLUGINS_ENABLED=true
+     - ND_PLUGINS_AUTORELOAD=true
+     - ND_AGENTS=plexsonic,lastfm,spotify
    ```
-4. Restart Navidrome, then go to **Settings → Plugins** and configure:
+3. Restart Navidrome, then go to **Settings → Plugins**, enable the plugin, and configure:
 
    | Setting | Description |
    |---------|-------------|
@@ -66,6 +69,14 @@ The plugin uses bigram (Dice coefficient) string similarity to match Plex track 
 
 Results are cached in Navidrome's persistent KVStore with a 7-day TTL. The cache is keyed by MusicBrainz Recording ID (if available) or a hash of artist + title. To force a refresh, you can wait for the TTL to expire or reinstall the plugin (which resets the KVStore).
 
+## Capabilities
+
+| Capability | Description |
+|------------|-------------|
+| **Instant Mix (by track)** | Returns sonically similar songs for a given track |
+| **Radio (by artist)** | Returns sonically similar songs for an artist's tracks |
+| **Similar Artists** | Returns artists that appear in the sonic neighbours of a given artist's tracks |
+
 ## Project Structure
 
 ```
@@ -74,15 +85,9 @@ plex-similar-songs/
 ├── manifest.json    # Plugin metadata, permissions, and config schema
 ├── go.mod           # Go module
 ├── go.sum           # Go checksums
-└── Taskfile.yml     # Build tasks
+├── Taskfile.yml     # Build tasks
+└── README.md
 ```
-
-## Capabilities
-
-| Export | Description |
-|--------|-------------|
-| `nd_get_similar_songs_by_track` | Returns sonically similar songs for a given track |
-| `nd_get_similar_songs_by_artist` | Returns sonically similar songs for an artist |
 
 ## License
 
