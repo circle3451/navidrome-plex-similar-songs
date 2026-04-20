@@ -16,6 +16,9 @@ tasks:
       - go.mod
     generates:
       - plugin.wasm
+    env:
+      GOROOT: /opt/homebrew/opt/go@1.24/libexec
+      PATH: /opt/homebrew/opt/go@1.24/bin:{{.PATH}}
     cmds:
       - tinygo build -o plugin.wasm -target wasip1 -buildmode=c-shared .
 
