@@ -1,9 +1,13 @@
 {
   "name": "Plex Sonic Similar Songs",
+  "id": "plexsonic",
   "author": "lassegh",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Fetches sonically similar songs from Plex's Sonic Analysis and maps them back to Navidrome tracks",
   "permissions": {
+    "config": {
+      "reason": "To read plugin configuration in Navidrome UI"
+    },
     "http": {
       "reason": "Communicate with Plex Media Server API to search tracks and retrieve sonic similarity data",
       "requiredHosts": [
@@ -44,19 +48,31 @@
       "type": "VerticalLayout",
       "elements": [
         {
-          "type": "Control",
-          "scope": "#/properties/plex_url"
+          "type": "Group",
+          "label": "Plex Server Connection",
+          "elements": [
+            {
+              "type": "Control",
+              "scope": "#/properties/plex_url"
+            },
+            {
+              "type": "Control",
+              "scope": "#/properties/plex_token",
+              "options": {
+                "format": "password"
+              }
+            }
+          ]
         },
         {
-          "type": "Control",
-          "scope": "#/properties/plex_token",
-          "options": {
-            "format": "password"
-          }
-        },
-        {
-          "type": "Control",
-          "scope": "#/properties/match_threshold"
+          "type": "Group",
+          "label": "Matching Settings",
+          "elements": [
+            {
+              "type": "Control",
+              "scope": "#/properties/match_threshold"
+            }
+          ]
         }
       ]
     }
