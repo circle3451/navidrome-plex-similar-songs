@@ -71,25 +71,36 @@ type PlexSonicResult struct {
 func getPlexURL() string {
 	val, ok := pdk.GetConfig("plex_url")
 	if !ok || val == "" {
+		pdk.Log(pdk.LogWarn, "plex_url not configured")
 		return ""
 	}
-	return strings.TrimRight(val, "/")
+	result := strings.TrimRight(val, "/")
+	pdk.Log(pdk.LogDebug, fmt.Sprintf("Config: plex_url=%s", result))
+	return result
 }
 
 func getPlexToken() string {
-	val, _ := pdk.GetConfig("plex_token")
+	val, ok := pdk.GetConfig("plex_token")
+	if !ok || val == "" {
+		pdk.Log(pdk.LogWarn, "plex_token not configured")
+		return ""
+	}
+	pdk.Log(pdk.LogDebug, "Config: plex_token=****")
 	return val
 }
 
 func getMatchThreshold() int {
 	val, ok := pdk.GetConfig("match_threshold")
 	if !ok || val == "" {
+		pdk.Log(pdk.LogDebug, "Config: match_threshold not set, using default 85")
 		return 85
 	}
 	v, err := strconv.Atoi(val)
 	if err != nil {
+		pdk.Log(pdk.LogWarn, fmt.Sprintf("Config: invalid match_threshold '%s', using default 85", val))
 		return 85
 	}
+	pdk.Log(pdk.LogDebug, fmt.Sprintf("Config: match_threshold=%d", v))
 	return v
 }
 
@@ -111,6 +122,7 @@ func plexRequest(endpoint string) ([]byte, error) {
 	plexToken := getPlexToken()
 
 	if plexURL == "" || plexToken == "" {
+		pdk.Log(pdk.LogError, "Cannot make Plex request: plex_url and/or plex_token not configured")
 		return nil, fmt.Errorf("plex_url and plex_token must be configured")
 	}
 
@@ -121,7 +133,7 @@ func plexRequest(endpoint string) ([]byte, error) {
 		fullURL += "?X-Plex-Token=" + url.QueryEscape(plexToken)
 	}
 
-	pdk.Log(pdk.LogDebug, fmt.Sprintf("Plex request: %s", plexURL+endpoint))
+	pdk.Log(pdk.LogInfo, fmt.Sprintf("Plex HTTP GET: %s", plexURL+endpoint))
 
 	resp, err := host.HTTPSend(host.HTTPRequest{
 		Method: "GET",
@@ -133,9 +145,12 @@ func plexRequest(endpoint string) ([]byte, error) {
 		TimeoutMs: 15000,
 	})
 	if err != nil {
+		pdk.Log(pdk.LogError, fmt.Sprintf("Plex HTTP error for %s: %v", endpoint, err))
 		return nil, fmt.Errorf("plex HTTP error: %w", err)
 	}
+	pdk.Log(pdk.LogDebug, fmt.Sprintf("Plex HTTP response: status=%d, bodyLen=%d", resp.StatusCode, len(resp.Body)))
 	if resp.StatusCode != 200 {
+		pdk.Log(pdk.LogError, fmt.Sprintf("Plex HTTP non-200 for %s: status %d", endpoint, resp.StatusCode))
 		return nil, fmt.Errorf("plex HTTP error: status %d", resp.StatusCode)
 	}
 	return resp.Body, nil
@@ -144,18 +159,24 @@ func plexRequest(endpoint string) ([]byte, error) {
 // searchPlexTrack searches Plex for a track by artist and title,
 // returning the ratingKey of the best match.
 func searchPlexTrack(artist, title string) (string, error) {
+	pdk.Log(pdk.LogInfo, fmt.Sprintf("Searching Plex for track: '%s - %s'", artist, title))
 	query := url.QueryEscape(artist + " " + title)
 	endpoint := fmt.Sprintf("/hubs/search?query=%s&limit=5", query)
 
 	body, err := plexRequest(endpoint)
 	if err != nil {
+		pdk.Log(pdk.LogError, fmt.Sprintf("Plex search request failed for '%s - %s': %v", artist, title, err))
 		return "", err
 	}
 
 	var result PlexSearchResult
 	if err := json.Unmarshal(body, &result); err != nil {
+		pdk.Log(pdk.LogError, fmt.Sprintf("Failed to parse Plex search JSON: %v", err))
 		return "", fmt.Errorf("failed to parse Plex search response: %w", err)
 	}
+
+	hubCount := len(result.MediaContainer.Hub)
+	pdk.Log(pdk.LogDebug, fmt.Sprintf("Plex search returned %d hubs", hubCount))
 
 	threshold := getMatchThreshold()
 
@@ -176,28 +197,36 @@ func searchPlexTrack(artist, title string) (string, error) {
 		}
 	}
 
+	pdk.Log(pdk.LogWarn, fmt.Sprintf("No matching track found in Plex for '%s - %s' (threshold=%d)", artist, title, threshold))
 	return "", fmt.Errorf("no matching track found in Plex for '%s - %s'", artist, title)
 }
 
 // getSonicSimilar retrieves sonically similar tracks from Plex.
 func getSonicSimilar(ratingKey string, count int) ([]PlexTrackMeta, error) {
+	pdk.Log(pdk.LogInfo, fmt.Sprintf("Fetching sonic similar tracks from Plex: ratingKey=%s, count=%d", ratingKey, count))
 	endpoint := fmt.Sprintf("/library/metadata/%s/nearest?count=%d", ratingKey, count)
 
 	body, err := plexRequest(endpoint)
 	if err != nil {
+		pdk.Log(pdk.LogError, fmt.Sprintf("Sonic similar request failed for ratingKey=%s: %v", ratingKey, err))
 		return nil, err
 	}
 
 	var result PlexSonicResult
 	if err := json.Unmarshal(body, &result); err != nil {
+		pdk.Log(pdk.LogError, fmt.Sprintf("Failed to parse Plex sonic JSON for ratingKey=%s: %v", ratingKey, err))
 		return nil, fmt.Errorf("failed to parse Plex sonic response: %w", err)
 	}
 
 	if len(result.MediaContainer.Metadata) == 0 {
+		pdk.Log(pdk.LogWarn, fmt.Sprintf("No sonic similar tracks found for ratingKey=%s", ratingKey))
 		return nil, fmt.Errorf("no sonic similar tracks found for ratingKey %s", ratingKey)
 	}
 
-	pdk.Log(pdk.LogInfo, fmt.Sprintf("Found %d sonic similar tracks from Plex", len(result.MediaContainer.Metadata)))
+	pdk.Log(pdk.LogInfo, fmt.Sprintf("Found %d sonic similar tracks from Plex for ratingKey=%s", len(result.MediaContainer.Metadata), ratingKey))
+	for i, t := range result.MediaContainer.Metadata {
+		pdk.Log(pdk.LogDebug, fmt.Sprintf("  Sonic result [%d]: '%s - %s' (album: '%s')", i+1, t.GrandparentTitle, t.Title, t.ParentTitle))
+	}
 	return result.MediaContainer.Metadata, nil
 }
 
@@ -336,8 +365,14 @@ func plexTracksToSongRefs(tracks []PlexTrackMeta) []metadata.SongRef {
 // --- KVStore Cache Helpers ---
 
 func getCachedSimilar(key string) (*metadata.SimilarSongsResponse, bool) {
+	pdk.Log(pdk.LogDebug, fmt.Sprintf("Checking cache for key: %s", key))
 	data, exists, err := host.KVStoreGet(key)
-	if err != nil || !exists {
+	if err != nil {
+		pdk.Log(pdk.LogWarn, fmt.Sprintf("KVStore read error for key %s: %v", key, err))
+		return nil, false
+	}
+	if !exists {
+		pdk.Log(pdk.LogDebug, fmt.Sprintf("Cache miss for key: %s", key))
 		return nil, false
 	}
 
@@ -354,13 +389,16 @@ func getCachedSimilar(key string) (*metadata.SimilarSongsResponse, bool) {
 func setCachedSimilar(key string, resp *metadata.SimilarSongsResponse) {
 	data, err := json.Marshal(resp)
 	if err != nil {
-		pdk.Log(pdk.LogDebug, fmt.Sprintf("Cache marshal error: %v", err))
+		pdk.Log(pdk.LogError, fmt.Sprintf("Cache marshal error: %v", err))
 		return
 	}
 
+	pdk.Log(pdk.LogDebug, fmt.Sprintf("Caching %d songs to key %s (TTL=7d, size=%d bytes)", len(resp.Songs), key, len(data)))
 	// Store with 7-day TTL
 	if err := host.KVStoreSetWithTTL(key, data, 7*24*60*60); err != nil {
-		pdk.Log(pdk.LogDebug, fmt.Sprintf("KVStore write error: %v", err))
+		pdk.Log(pdk.LogError, fmt.Sprintf("KVStore write error for key %s: %v", key, err))
+	} else {
+		pdk.Log(pdk.LogInfo, fmt.Sprintf("Cached %d similar songs to key %s", len(resp.Songs), key))
 	}
 }
 
@@ -381,12 +419,15 @@ func (p *plexPlugin) GetSimilarSongsByTrack(req metadata.SimilarSongsByTrackRequ
 	}
 
 	if cached, ok := getCachedSimilar(kvKey); ok {
+		pdk.Log(pdk.LogInfo, fmt.Sprintf("Returning %d cached similar songs for '%s - %s'", len(cached.Songs), req.Artist, req.Name))
 		// Respect the requested count
 		if int(req.Count) > 0 && len(cached.Songs) > int(req.Count) {
 			cached.Songs = cached.Songs[:req.Count]
 		}
 		return cached, nil
 	}
+
+	pdk.Log(pdk.LogInfo, fmt.Sprintf("Cache miss, querying Plex for '%s - %s'", req.Artist, req.Name))
 
 	// Step 2: Forward search — find the track in Plex
 	ratingKey, err := searchPlexTrack(req.Artist, req.Name)
@@ -408,6 +449,7 @@ func (p *plexPlugin) GetSimilarSongsByTrack(req metadata.SimilarSongsByTrackRequ
 	}
 
 	// Step 4: Convert Plex results to SongRef (Navidrome will reconcile by name/artist)
+	pdk.Log(pdk.LogDebug, fmt.Sprintf("Converting %d Plex tracks to SongRefs", len(plexTracks)))
 	songRefs := plexTracksToSongRefs(plexTracks)
 
 	resp := &metadata.SimilarSongsResponse{
@@ -434,6 +476,7 @@ func (p *plexPlugin) GetSimilarSongsByArtist(req metadata.SimilarSongsByArtistRe
 		req.Name, req.MBID, req.Count))
 
 	// Search for the artist in Plex to find their tracks
+	pdk.Log(pdk.LogInfo, fmt.Sprintf("Searching Plex for artist: '%s'", req.Name))
 	query := url.QueryEscape(req.Name)
 	endpoint := fmt.Sprintf("/hubs/search?query=%s&limit=3", query)
 
@@ -444,10 +487,12 @@ func (p *plexPlugin) GetSimilarSongsByArtist(req metadata.SimilarSongsByArtistRe
 
 	var result PlexSearchResult
 	if err := json.Unmarshal(body, &result); err != nil {
+		pdk.Log(pdk.LogError, fmt.Sprintf("Failed to parse Plex artist search JSON: %v", err))
 		return nil, fmt.Errorf("failed to parse Plex search response: %w", err)
 	}
 
 	// Find the first track by this artist
+	pdk.Log(pdk.LogDebug, fmt.Sprintf("Searching %d hubs for tracks by artist '%s'", len(result.MediaContainer.Hub), req.Name))
 	var firstTrackKey string
 	for _, hub := range result.MediaContainer.Hub {
 		if hub.Type != "track" {
@@ -455,7 +500,9 @@ func (p *plexPlugin) GetSimilarSongsByArtist(req metadata.SimilarSongsByArtistRe
 		}
 		for _, track := range hub.Metadata {
 			score := stringSimilarity(normalizeString(req.Name), normalizeString(track.GrandparentTitle))
+			pdk.Log(pdk.LogDebug, fmt.Sprintf("Artist match candidate: '%s' score=%d", track.GrandparentTitle, score))
 			if score >= getMatchThreshold() {
+				pdk.Log(pdk.LogInfo, fmt.Sprintf("Matched artist track: ratingKey=%s '%s - %s' (score=%d)", track.RatingKey, track.GrandparentTitle, track.Title, score))
 				firstTrackKey = track.RatingKey
 				break
 			}
@@ -466,6 +513,7 @@ func (p *plexPlugin) GetSimilarSongsByArtist(req metadata.SimilarSongsByArtistRe
 	}
 
 	if firstTrackKey == "" {
+		pdk.Log(pdk.LogWarn, fmt.Sprintf("No matching tracks found in Plex for artist '%s'", req.Name))
 		return nil, fmt.Errorf("no tracks found in Plex for artist '%s'", req.Name)
 	}
 
@@ -484,6 +532,7 @@ func (p *plexPlugin) GetSimilarSongsByArtist(req metadata.SimilarSongsByArtistRe
 		songRefs = songRefs[:count]
 	}
 
+	pdk.Log(pdk.LogInfo, fmt.Sprintf("Returning %d similar songs for artist '%s'", len(songRefs), req.Name))
 	return &metadata.SimilarSongsResponse{Songs: songRefs}, nil
 }
 
